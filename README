@@ -1,0 +1,4 @@
+A toy implementation of the Raft consensus algorithm.
+
+This implementation uses Thrift for the RPC mechanism so it must
+be installed as a dependency (`pip install thrift` works just fine).
