@@ -13,6 +13,9 @@ import logging
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
+# Basically a copy of TThreadPoolServer with a stop() call
+# to allow for clean shutdowns. This comes at the cost of having
+# timeouts on the socket and Queue which may increase cpu churn.
 class ThreadPoolThriftServer(TServer):
   """Server with a fixed size pool of threads which service requests."""
 
