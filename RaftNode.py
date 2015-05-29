@@ -2,6 +2,19 @@ import socket
 import threading
 import time
 
+import sys
+sys.path.append('gen-py')
+
+from ThreadPoolThriftServer import *
+
+from raft import Raft
+from raft.ttypes import *
+
+from thrift.transport import TSocket
+from thrift.transport import TTransport
+from thrift.protocol import TBinaryProtocol
+from thrift.server import TServer
+
 # an enum
 class Role:
     FOLLOWER = 1
@@ -23,36 +36,31 @@ class RaftNode:
 
         # other state
         self.role = Role.FOLLOWER
-        self.halt = False
+        self.port = port
         
-        # init server socket
-        self.serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.serversocket.bind(('localhost', port))
-        self.serversocket.settimeout(3)
-        
+        # init server
+        processor = Raft.Processor(self)
+        transport = TSocket.TServerSocket(port=port)
+        #transport.setTimeout(1000) # 1s timeout
+
+        #self.server = TServer.TSimpleServer(processor, transport)
+        #self.server = TServer.TThreadPoolServer(processor, transport)
+        self.server = ThreadPoolThriftServer(processor, transport)
+
         self.initialMembers = initialMembers
         
     def start(self):
-        self.serversocket.listen(5)
         # start listening thread
-        self.listen_thread = threading.Thread(target=self.listen)
+        self.listen_thread = threading.Thread(target=self._listen)
+        #self.listen_thread.setDaemon(True)
         self.listen_thread.start()
 
-    def listen(self):
+    def _listen(self):
         print 'listening'
-
-        while not self.halt:
-            try:
-                connection, client_address = self.serversocket.accept()
-
-                print 'recieved connection from',client_address
-        
-                for line in connection.makefile('r'):
-                    # TODO: handle line
-                    print line[:-1]
-                print 'finished with connection from',client_address
-            except:
-                pass
+        try:
+            self.server.serve()
+        except Exception as e:
+            print '_listen caught',e
         print 'done listening'
 
     def connect(self):
@@ -61,18 +69,19 @@ class RaftNode:
             self.initialMembers = initialMembers
             self.members = []
             for (addr,port) in initialMembers:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.connect((addr,port))
-                self.members.append(s)
+                client = connectClient(addr,port)
 
+                self.members.append(client)
 
     def poll(self):
         time.sleep(1)
 
     def stop(self):
-        self.halt = True
-        self.serversocket.close()
-        self.listen_thread.join()
+        try:
+            self.server.stop()
+            self.listen_thread.join()
+        except Exception as e:
+            print 'exception on stop',e
 
     # The rpc methods
     def ping(self):
@@ -87,6 +96,23 @@ class RaftNode:
     def installSnapshot(self, term, leaderId, lastIncludedIndex, lastIncludedTerm, offset, data, done):
         pass
 
+def connectClient(addr,port):
+    # Make socket
+    transport = TSocket.TSocket(addr, port)
+
+    # Buffering is critical. Raw sockets are very slow
+    transport = TTransport.TBufferedTransport(transport)
+
+    # Wrap in a protocol
+    protocol = TBinaryProtocol.TBinaryProtocol(transport)
+
+    # Create a client to use the protocol encoder
+    client = Raft.Client(protocol)
+    
+    # Connect
+    transport.open()
+    return client
+
         
 def runNode(port,members=None):
     node = RaftNode(port,members)
@@ -98,14 +124,16 @@ def runNode(port,members=None):
 if __name__ == '__main__':
     node = runNode(8080)
 
-    # make client socket
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect(('localhost',8080))
-    s.sendall('ping\n')
-    s.close()
+    # make client
+    client = connectClient('localhost',8080)
+    print client.ping()
+    
     try:
         while True:
             node.poll()
+    except:
+        pass
     finally:
+        print 'stopping'
         node.stop()
         
