@@ -146,12 +146,40 @@ class RaftNode:
 
     def requestVote(self, term, candidateId, lastLogIndex, lastLogTerm):
         with self.lock:
-            pass
+            ret = VoteReturn(self.currentTerm,False)
+            if term < self.currentTerm:
+                return ret
+            if self.votedFor is None:
+                self.votedFor = candidateId
+                ret.voteGranted = True
+                return ret
+            # grant vote if candidate is at as up to date as this node's log
+            if lastLogIndex >= len(self.log) - 1 and lastLogTerm >= self.log[-1][0]:
+                self.votedFor = candidateId
+                ret.voteGranted = True
+                return ret
+            return ret
 
     def installSnapshot(self, term, leaderId, lastIncludedIndex, lastIncludedTerm, offset, data, done):
         with self.lock:
             pass
 
+    def stepState(self):
+        self.applySM()
+
+        if self.role == Role.FOLLOWER:
+            pass
+        elif self.role == Role.CANDIDATE:
+            pass
+        elif self.role == Role.LEADER:
+            pass
+        else:
+            raise ValueError('Node found itself in an unknown state: '+self.role)
+
+    # Apply the latest entry to the state machine if applicable
+    def applySM(self):
+        pass
+    
 def connectClient(addr,port):
     # Make socket
     transport = TSocket.TSocket(addr, port)
